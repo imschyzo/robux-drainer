@@ -69,3 +69,4 @@ Place cookie files in the `input/` folder. You can also just drop cookies direct
 For educational purposes only. Use at your own risk. I don't support hacking or brutting accounts
 
 ## Support
+For technical help you can always open ticket on our server https://discord.gg/kellystock
