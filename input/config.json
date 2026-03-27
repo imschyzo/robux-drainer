@@ -20,5 +20,5 @@
   "delay": 3,
   "webhook": "",
   "user_id": "",
-  "bot_token": "not required"
+  "bot_token": ""
 }
