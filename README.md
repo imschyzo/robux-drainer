@@ -57,6 +57,7 @@ Edit `input/config.json`:
 
 ## Input
 Place cookie files in the `input/` folder. You can also just drop cookies directly into `cookies.txt`.
+Example: robux*.txt rap*.txt (u:p:c)
 
 ## Notes
 - Gamepasses are purchased in descending price order
